@@ -1,0 +1,33 @@
+{
+  "name": "@bulga138/peso",
+  "version": "0.1.0",
+  "description": "Prompt Engineering Smart Optimizer — OpenCode plugin",
+  "type": "module",
+  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "dist/",
+    "README.md",
+    "peso.schema.json",
+    "assets/banner.png"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bulga138/peso.git"
+  },
+  "scripts": {
+    "build": "bun build src/index.ts --outdir dist --target node",
+    "dev": "bun run src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "cli": "bun run src/cli.ts"
+  },
+  "dependencies": {
+    "@opencode-ai/plugin": "latest"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.0.0"
+  }
+}

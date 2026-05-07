@@ -1,0 +1,134 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://peso.dev/schema.json",
+  "title": "PESO Configuration",
+  "description": "Configuration file for PESO (Prompt Engineering Smart Optimizer)",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "JSON Schema reference URL"
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["on", "passive", "off"],
+      "default": "on",
+      "description": "Enhancement mode: 'on' (auto-enhance), 'passive' (score only), 'off' (disabled)"
+    },
+    "shortPromptThreshold": {
+      "type": "number",
+      "minimum": 0,
+      "default": 15,
+      "description": "Minimum prompt length (words) to trigger enhancement"
+    },
+    "toolPriorities": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["manual", "mcp-first"],
+          "default": "manual",
+          "description": "Tool selection strategy: 'manual' (use prefer/avoid lists) or 'mcp-first' (auto-prefer MCP tools)"
+        },
+        "prefer": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": ["read", "glob", "grep"],
+          "description": "Tool names to prioritize (cheap/fast tools)"
+        },
+        "avoid": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": ["task", "webfetch"],
+          "description": "Tool names to deprioritize (expensive/slow tools)"
+        },
+        "notes": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "Optional documentation for tool priority decisions"
+        }
+      },
+      "required": ["mode", "prefer", "avoid"],
+      "additionalProperties": false
+    },
+    "techniques": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": ["string", "array"],
+          "oneOf": [
+            { "const": "all" },
+            {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          ],
+          "default": "all",
+          "description": "'all' to enable all techniques, or array of specific technique IDs"
+        },
+        "disabled": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Array of technique IDs to explicitly disable (even if 'enabled' is 'all')"
+        }
+      },
+      "required": ["enabled", "disabled"],
+      "additionalProperties": false
+    },
+    "context": {
+      "type": "object",
+      "properties": {
+        "injectGitBranch": {
+          "type": "boolean",
+          "default": true,
+          "description": "Include current git branch in context"
+        },
+        "injectGitChangedFiles": {
+          "type": "boolean",
+          "default": false,
+          "description": "Include list of changed files (git status) in context"
+        },
+        "injectGitLastCommit": {
+          "type": "boolean",
+          "default": false,
+          "description": "Include last commit message in context"
+        },
+        "injectMcpTools": {
+          "type": "boolean",
+          "default": true,
+          "description": "Include available MCP tools in context"
+        },
+        "injectProjectInstructions": {
+          "type": "boolean",
+          "default": true,
+          "description": "Include project instruction files (README, CONTRIBUTING, etc.) in context"
+        },
+        "maxChangedFiles": {
+          "type": "number",
+          "minimum": 1,
+          "default": 10,
+          "description": "Maximum number of changed files to include when injectGitChangedFiles is true"
+        }
+      },
+      "required": ["injectGitBranch", "injectGitChangedFiles", "injectGitLastCommit", "injectMcpTools", "injectProjectInstructions", "maxChangedFiles"],
+      "additionalProperties": false
+    },
+    "options": {
+      "type": "object",
+      "properties": {
+        "baseURL": {
+          "type": "string",
+          "description": "Override LLM API base URL (supports {env:VAR} template for environment variables)"
+        },
+        "apiKey": {
+          "type": "string",
+          "description": "Override LLM API key (supports {env:VAR} template for environment variables)"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Optional overrides for CLI/HTTP fallback path (plugin mode uses OpenCode SDK auth)"
+    }
+  },
+  "additionalProperties": true
+}
