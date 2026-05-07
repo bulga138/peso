@@ -47,7 +47,7 @@ PESO reads real agent permissions from the SDK to determine enhancement intensit
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugin": ["/path/to/peso"]
+  "plugin": ["@bulga138/peso"]
 }
 ```
 
