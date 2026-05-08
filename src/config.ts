@@ -9,7 +9,7 @@
  * Supports {env:VAR_NAME} template syntax for secrets (same as opencode.json).
  */
 
-import { readFileSync, existsSync } from "fs";
+import { readFileSync, existsSync, readdirSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
 
@@ -36,6 +36,24 @@ export interface PesoConfig {
     injectProjectInstructions: boolean;
     maxChangedFiles: number;
   };
+  /**
+   * Controls which external technique packs are active.
+   *
+   * Packs are installed globally in ~/.config/peso/packs/ as .js files.
+   * PESO auto-discovers all .js files in that directory at startup.
+   *
+   * This config controls which discovered packs are active:
+   *  - enabled: "all" (default) loads every discovered pack
+   *  - enabled: ["security-pack", "team-standards"] loads only named packs
+   *  - disabled: ["noisy-pack"] excludes specific packs (takes precedence)
+   *
+   * Pack names are matched against the `name` field exported by each pack file.
+   */
+  techniquePacks?: {
+    enabled: "all" | string[];
+    disabled: string[];
+  };
+
   /** Optional overrides for CLI/HTTP fallback path */
   options?: {
     baseURL?: string;  // supports {env:VAR}
@@ -111,6 +129,27 @@ function deepMerge<T extends Record<string, any>>(base: T, override: Partial<T>)
     }
   }
   return result;
+}
+
+// ---------------------------------------------------------------------------
+// Global packs directory discovery
+// ---------------------------------------------------------------------------
+const PACKS_DIR = join(homedir(), ".config", "peso", "packs");
+
+/**
+ * Discover all .js pack files in ~/.config/peso/packs/.
+ * Returns absolute paths. If the directory doesn't exist, returns [].
+ */
+export function discoverGlobalPacks(): string[] {
+  if (!existsSync(PACKS_DIR)) return [];
+  try {
+    return readdirSync(PACKS_DIR)
+      .filter((f) => f.endsWith(".js"))
+      .map((f) => join(PACKS_DIR, f))
+      .sort();
+  } catch {
+    return [];
+  }
 }
 
 let cachedConfig: PesoConfig | null = null;

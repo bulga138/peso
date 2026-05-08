@@ -19,15 +19,23 @@
   },
   "scripts": {
     "build": "bun build src/index.ts --outdir dist --target node",
+    "cli": "bun run src/cli.ts",
     "dev": "bun run src/index.ts",
-    "typecheck": "tsc --noEmit",
-    "cli": "bun run src/cli.ts"
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix && prettier --write .",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@opencode-ai/plugin": "latest"
   },
   "devDependencies": {
+    "@eslint/js": "10.0.1",
     "@types/bun": "latest",
-    "typescript": "^5.0.0"
+    "@typescript-eslint/eslint-plugin": "8.59.2",
+    "@typescript-eslint/parser": "8.59.2",
+    "eslint": "10.3.0",
+    "globals": "17.6.0",
+    "prettier": "3.8.3",
+    "typescript": "6.0.3"
   }
 }

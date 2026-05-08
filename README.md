@@ -12,13 +12,16 @@ An OpenCode plugin that enhances prompts using a configurable small/cheap model 
 User types prompt
       ↓
   PESO plugin (chat.message hook)
+      ↓  short prompt? → intent detection (fix/explain/refactor/…) → expand
       ↓  classifies prompt (rule-based, zero cost)
       ↓  Agent Compass: reads agent permissions → sets intensity
       ↓  10-stage pipeline + 26 VILA-Lab techniques (model-tier-aware)
       ↓  style directives → system prompt; user prompt stays clean
-      ↓  if use_llm: calls small model via SDK for rewrite
+      ↓  if use_llm: calls small model via SDK for domain-specific rewrite
+      ↓         quality gate: keeps winner of (original, pipeline, llm)
       ↓  injects context (git, tools, MCP tools)
       ↓  mutates prompt → main model receives enhanced version
+      ↓  UI feedback line appended (score delta, techniques count, domain)
 ```
 
 ### Modes
@@ -98,6 +101,10 @@ PESO loads config from two locations (deep-merged):
     "enabled": "all",
     "disabled": ["emotional-stimuli"]
   },
+  "techniquePacks": {
+    "enabled": "all",
+    "disabled": []
+  },
   "context": {
     "injectGit": true,
     "injectMcpTools": true,
@@ -107,6 +114,7 @@ PESO loads config from two locations (deep-merged):
     "baseURL": "{env:ANTHROPIC_URL}",
     "apiKey": "{env:ANTHROPIC_AUTH_TOKEN}"
   }
+}
 ```
 
 **Tool priorities** tell the model which tools are cheap (prefer) vs expensive (avoid). This gets injected as `<prefer-tools>` and `<avoid-tools>` in the context block, nudging the model to use `read`/`glob`/`grep` before spawning a `task` subagent.
@@ -117,6 +125,8 @@ PESO loads config from two locations (deep-merged):
 - `"mcp-first"` — all MCP tools auto-added to `prefer` (favors MCP over native OpenCode tools)
 
 Run `peso-config` to see all available tools and set up your priorities.
+
+**`techniquePacks`** (optional): controls which globally-installed technique packs are active for this project. Packs are `.js` files placed in `~/.config/peso/packs/`. See [Extensible Techniques](#extensible-techniques) below.
 
 ### Environment Variables
 
@@ -231,9 +241,89 @@ Reasoning nudges (`step-by-step`, `emotional-stimuli`, `chain-of-thought`, `deco
 
 ### LLM-based (costs small-model tokens):
 
-- Full prompt rewrite preserving intent
+- Full prompt rewrite preserving intent, using a **domain-specific system prompt** (code/research/creative/general)
+- **Quality gate:** scores the original, pipeline output, and LLM rewrite — keeps the highest-scoring version. Falls back to the original if both enhancements score lower.
 - Context-aware restructuring
-- Domain-specific optimization
+
+### Short-prompt expansion
+
+Prompts of 6 words or fewer are matched against a set of verb-first intent patterns before entering the pipeline:
+
+| Input                | Expanded to                                                                                                             |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `fix login`          | `Fix the issue with login. Identify the root cause, explain what is wrong, and provide the corrected code.`             |
+| `refactor auth`      | `Refactor auth. Improve readability and reduce complexity while maintaining the same behaviour. Show before and after.` |
+| `explain middleware` | `Explain how middleware works. Cover the key logic, data flow, and any non-obvious behaviour.`                          |
+
+Recognised verbs: `fix`, `explain`, `refactor`, `add`, `remove`, `test`, `debug`, `update`, `implement`, `review`. Single-word non-verb prompts (e.g. `hello`) are still skipped.
+
+### Inline feedback
+
+After each transparent enhancement (mode `on`), PESO appends a UI-visible, LLM-hidden feedback line:
+
+```
+✦ peso: 5.8→8.1 (+2.3) | 4 techniques | code/medium
+```
+
+This line uses the `ignored: true` SDK part flag — it appears in the OpenCode UI but is never sent to the model.
+
+## Extensible Techniques
+
+You can add your own technique packs without modifying PESO's source. Packs are installed globally and each project controls which are active.
+
+### 1. Create a pack file
+
+```js
+// ~/.config/peso/packs/security.js
+export default {
+  name: 'security-pack',
+  version: '1.0.0',
+  techniques: [
+    {
+      id: 'security-review',
+      name: 'Security Review Nudge',
+      description: 'Flags security concerns for auth/token prompts',
+      domains: ['code'],
+      applies: prompt => /auth|login|password|token|secret/i.test(prompt),
+      inject: prompt =>
+        prompt + '\n\nIMPORTANT: Review for security vulnerabilities (injection, XSS, auth bypass, secrets exposure).',
+    },
+  ],
+};
+```
+
+### 2. Drop it in the global packs directory
+
+```bash
+mkdir -p ~/.config/peso/packs
+cp security.js ~/.config/peso/packs/
+```
+
+PESO auto-discovers all `.js` files in `~/.config/peso/packs/` at startup. No registration needed — just drop the file.
+
+### 3. Control per project
+
+By default, all discovered packs are loaded. Use the project's `peso.json` to filter:
+
+```json
+{
+  "techniquePacks": {
+    "enabled": "all",
+    "disabled": ["noisy-pack"]
+  }
+}
+```
+
+| Config                                    | Effect                                                 |
+| ----------------------------------------- | ------------------------------------------------------ |
+| `"enabled": "all"`                        | Load all discovered packs (default)                    |
+| `"enabled": ["security-pack"]`            | Load only named packs                                  |
+| `"disabled": ["noisy-pack"]`              | Exclude specific packs (takes precedence over enabled) |
+| `"disabled": ["security-pack/xss-check"]` | Disable a single technique within a pack               |
+
+The global `~/.config/peso/peso.json` can also set `techniquePacks.disabled` to block packs across all projects.
+
+> **Security note:** Pack files are executed as real JavaScript modules via dynamic `import()`. Only load packs from sources you trust.
 
 ## Inspirations
 

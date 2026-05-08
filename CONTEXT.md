@@ -85,26 +85,30 @@ plugin.ts (orchestration, hooks, tools)
 ### Live hook flow (`chat.message`, mode=`on`)
 
 1. User types prompt → OpenCode calls `chat.message` hook
-2. `plugin.ts` extracts text parts, checks length threshold
-3. `classifier.ts` classifies: domain, complexity, routing
-4. If routing = `clarify`, hook returns (no enhancement)
-5. Agent permissions fetched from SDK → compass intensity (none/light/medium/full)
-6. `enhancer.ts` `runPipeline()` runs 10 stages:
+2. `plugin.ts` extracts text parts; absolute minimum check (<5 chars → skip)
+3. **Short-prompt expansion** (≤6 words): `expandShortPrompt()` in `classifier.ts` matches verb-first intent patterns (fix/explain/refactor/add/remove/test/debug/update/implement/review). If matched, replaces the short prompt with a structured template before classification. If no match and below `shortPromptThreshold`, returns without enhancement.
+4. `classifier.ts` classifies: domain, complexity, routing
+5. If routing = `clarify`, hook returns (no enhancement)
+6. Agent permissions fetched from SDK → compass intensity (none/light/medium/full)
+7. `enhancer.ts` `runPipeline()` runs 10 stages (with any loaded technique packs merged into built-ins):
    - Analyze → Elevate Critical → Flatten Nesting → Consolidate → Inject Context → Apply Techniques → Validate → Deliver
-7. **User-level techniques** appended to user prompt (task-specific only: verify, examples, etc.)
-8. **System-level techniques** go to system prompt (via `experimental.chat.system.transform`)
-9. Mutated prompt replaces original in `output.parts`
+8. **User-level techniques** appended to user prompt (task-specific only: verify, examples, etc.)
+9. **System-level techniques** go to system prompt (via `experimental.chat.system.transform`)
+10. Enhanced prompt pushed to `output.parts` with structured metadata (`peso`, `domain`, `complexity`, `scoreBefore`, `scoreAfter`, `techniquesApplied`)
+11. **Inline feedback part** pushed as `ignored: true` — visible in UI, hidden from LLM: `✦ peso: 5.8→8.1 (+2.3) | 4 techniques | code/medium`
 
 ### Tool flow (`peso` / `peso-debug`)
 
-1. Same pipeline as above, but also calls `enhanceWithSdk()` — sends the _original_ prompt to the small model for a full rewrite
-2. LLM rewrite **replaces** the pipeline output (techniques are discarded when LLM succeeds)
-3. Returns formatted result to the agent
+1. Same pipeline as above
+2. Calls `enhanceWithSdk()` — uses **domain-specific system prompt** (code/research/creative/general) instead of the generic fallback
+3. **Quality gate** (`applyQualityGate()`): scores original, pipeline, and LLM rewrite; keeps highest-scoring version. Falls back to original if both enhancements score lower.
+4. `peso-debug` includes a `### Quality Gate` section showing all three scores and the winner
+5. Returns formatted result to the agent
 
 ### Key distinction
 
 - **Live hook:** rule-based only, no LLM call, <1ms overhead
-- **Tools:** rule-based + LLM rewrite, costs small-model tokens
+- **Tools:** rule-based + LLM rewrite with quality gate, costs small-model tokens
 
 ## Important Domain Concepts
 
@@ -176,6 +180,12 @@ bun run cli -- "your prompt"   # standalone CLI test
 To use as an OpenCode plugin, add to your `opencode.json`:
 
 ```json
+{ "plugin": ["@bulga138/peso"] }
+```
+
+Or in local development:
+
+```json
 { "plugin": ["/path/to/peso"] }
 ```
 
@@ -213,6 +223,14 @@ No linter or formatter is configured.
 3. If it's a style/constraint directive: add its ID to `SYSTEM_TECHNIQUES` in `src/enhancer.ts`
 4. If it should only fire for small models: add `excludeTiers: ["frontier", "standard"]`
 5. If adding to `SYSTEM_TECHNIQUES`: add a dedup check in `buildSystemPrompt()` if the templates already cover the same concern
+
+### Add an external technique pack
+
+1. Create a `.js` file exporting a `TechniquePack` default (see `src/techniques.ts` JSDoc)
+2. Drop it in `~/.config/peso/packs/` — PESO auto-discovers all `.js` files there
+3. Packs are loaded once at startup via `initTechniquePacks()` in `enhancer.ts`
+4. To disable for a specific project: set `techniquePacks.disabled: ["pack-name"]` in the project's `peso.json`
+5. To only enable specific packs: set `techniquePacks.enabled: ["pack-name"]` in `peso.json`
 
 ### Add a new domain template
 
@@ -252,9 +270,12 @@ No linter or formatter is configured.
 ## Gotchas and Non-Obvious Details
 
 - **`input.model` shape** — the `chat.message` hook receives `input.model` as `{ providerID, modelID }`, not a string. Extract `modelID` for tier resolution.
-- **LLM rewrite discards techniques** — in the `peso`/`peso-debug` tools, `enhanceWithSdk()` receives the _original_ prompt, not the pipeline-enhanced one. Technique injections are lost when LLM rewrite succeeds.
+- **LLM rewrite quality gate** — in the `peso`/`peso-debug` tools, `applyQualityGate()` scores original, pipeline, and LLM rewrite and keeps the best. The original is returned if both enhancements score lower.
+- **Domain-specific rewrite prompts** — `DOMAIN_REWRITE_PROMPTS` in `plugin.ts` maps each domain to a tailored system prompt for the LLM rewrite. Falls back to `ENHANCE_SYSTEM_PROMPT` for `general`.
+- **Short-prompt expansion** — `expandShortPrompt()` in `classifier.ts` fires before classification for prompts ≤6 words. Returns `matched: false` for non-actionable single words (no verb match), which causes the hook to skip enhancement.
+- **Inline feedback part** — the hook pushes a second `ignored: true` text part after the enhanced prompt. It is visible in the OpenCode UI but never sent to the LLM. Its `id` is `${originalId}-peso-feedback`.
+- **Technique pack cache** — `_packCache` in `techniques.ts` is module-level. Call `resetPackCache()` to force re-load (e.g. during testing).
 - **`SYSTEM_TECHNIQUES` filtering happens twice** — once in `runPipeline()` (filters them out of user-level application) and once in `buildSystemPrompt()` (includes them in system prompt).
-- **Pre-existing type errors** — `toAgentPermissions()` in `plugin.ts` has known type mismatches (`extractPermission()` returns `string | undefined` but `AgentPermissions` expects specific union types). These are suppressed by `skipLibCheck` but surface with `tsc --noEmit`.
 - **Config env templates** — `peso.json` supports `{env:VAR_NAME}` syntax for values, resolved at load time by `resolveEnvTemplates()`.
 - **JSONC handling** — `readOpencodeConfig()` in `llm-client.ts` tries plain `JSON.parse()` first, then strips comments. The comment-stripping regex was previously mangling URLs — fixed to only strip `//` comments at line starts.
 - **`dist/` is gitignored** — always `bun run build` after changes before testing via plugin mode.
@@ -283,6 +304,6 @@ No linter or formatter is configured.
 ## Open Questions / Assumptions
 
 - **No tests exist** — verification is entirely manual via `peso-debug` and `bun --eval` scripts
-- **`tsc --noEmit` fails** — known type errors in `toAgentPermissions()` are not blocking but should be fixed
+- **`tsc --noEmit` passes** — all type errors resolved as of this revision
 - **CLI path (`src/cli.ts`)** appears unmaintained — it has its own `ENHANCE_SYSTEM_PROMPT` constant duplicated from `plugin.ts`
 - **`src/router.ts`** provides a standalone `route()` function but it's unclear if anything uses it outside of `cli.ts`
